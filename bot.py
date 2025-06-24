@@ -180,11 +180,73 @@ async def comando_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         logging.error(f"[COMANDO /resumen] {e}")
 
 
+async def comando_clima(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Envía solo el clima actual y alertas."""
+    try:
+        partes = [obtener_clima()]
+        alertas = obtener_alertas()
+        if alertas:
+            partes.append(alertas)
+        await update.message.reply_text(
+            "\n\n".join(partes),
+            parse_mode="Markdown",
+            disable_web_page_preview=True,
+        )
+    except Exception as e:  # pragma: no cover - red de terceros
+        logging.error(f"[COMANDO /clima] {e}")
+
+
+async def comando_noticias(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Envía las últimas noticias."""
+    try:
+        partes = []
+
+        policiales = obtener_noticias(RSS_POLICIALES)
+        if policiales:
+            partes.append("🔎 *Noticias policiales:*\n" + policiales)
+
+        politica = obtener_noticias(RSS_POLITICA)
+        if politica:
+            partes.append("📰 *Noticias políticas:*\n" + politica)
+
+        locales = obtener_noticias(RSS_LOCALES)
+        if locales:
+            partes.append("🏠 *Noticias locales:*\n" + locales)
+
+        if not partes:
+            partes.append("⚠️ *No se pudieron obtener noticias.*")
+
+        await update.message.reply_text(
+            "\n\n".join(partes),
+            parse_mode="Markdown",
+            disable_web_page_preview=True,
+        )
+    except Exception as e:  # pragma: no cover - red de terceros
+        logging.error(f"[COMANDO /noticias] {e}")
+
+
+async def comando_river(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Informa si River juega hoy y resultado si está disponible."""
+    try:
+        partido = obtener_partido_river()
+        mensaje = partido or "No hay partido de River programado para hoy."
+        await update.message.reply_text(
+            mensaje,
+            parse_mode="Markdown",
+            disable_web_page_preview=True,
+        )
+    except Exception as e:  # pragma: no cover - red de terceros
+        logging.error(f"[COMANDO /river] {e}")
+
+
 async def comando_ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Lista de comandos."""
     mensaje = "\n".join(
         [
             "🤖 *Comandos disponibles:*",
+            "/clima - Clima actual",
+            "/noticias - Últimas noticias",
+            "/river - Partido de River de hoy",
             "/resumen - Resumen manual",
             "/ayuda - Lista de comandos",
         ]
@@ -216,6 +278,9 @@ async def iniciar_bot():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("resumen", comando_resumen))
+    app.add_handler(CommandHandler("clima", comando_clima))
+    app.add_handler(CommandHandler("noticias", comando_noticias))
+    app.add_handler(CommandHandler("river", comando_river))
     app.add_handler(CommandHandler("ayuda", comando_ayuda))
 
     tz = pytz.timezone("America/Argentina/Buenos_Aires")

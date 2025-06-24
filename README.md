@@ -2,6 +2,16 @@
 
 Bot automático para Telegram. Informa clima, noticias destacadas (policiales, políticas y locales de Palomar, Caseros y Ciudad Jardín), alertas y próximos partidos de River.
 
+## Comandos
+
+```
+/clima     - Clima y alertas actuales
+/noticias  - Últimas noticias
+/river     - Partido de River del día
+/resumen   - Resumen completo
+/ayuda     - Esta ayuda
+```
+
 ## Instalación
 
 1. Clonar el repositorio:
