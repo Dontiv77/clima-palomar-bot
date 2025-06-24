@@ -6,7 +6,8 @@ import requests
 import logging
 import asyncio
 import feedparser
-import imghdr as imghdr_custom  # Compatibilidad para Python 3.13+
+from PIL import Image
+import io
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -83,9 +84,7 @@ def obtener_noticias():
             "https://www.eldiarioar.com/rss/politica.xml",
         ]
         zonas = ["palomar", "caseros", "ciudad jardín", "ciudad jardin", "el palomar"]
-        noticias_locales = []
-        noticias_policiales = []
-        noticias_politica = []
+        noticias_locales, noticias_policiales, noticias_politica = [], [], []
 
         for url in rss_feeds:
             feed = feedparser.parse(url)
@@ -112,7 +111,6 @@ def obtener_noticias():
             mensaje += "⚠️ No se encontraron noticias en los portales configurados."
 
         return mensaje
-
     except Exception as e:
         logging.error(f"[NOTICIAS] {e}")
         return "⚠️ *No se pudo obtener noticias.*"
@@ -166,7 +164,6 @@ def obtener_partido_river():
         logging.error(f"[RIVER] {e}")
     return None
 
-# Comandos del bot
 async def comando(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         texto = update.message.text
@@ -202,7 +199,6 @@ async def comando(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logging.error(f"[COMANDO] {e}")
 
-# Resumen cada 1 minuto y alertas locales
 async def resumen_periodico(app):
     try:
         ahora = datetime.now(pytz.timezone("America/Argentina/Buenos_Aires"))
@@ -235,7 +231,6 @@ async def resumen_periodico(app):
     except Exception as e:
         logging.error(f"[RESUMEN AUTOMÁTICO] {e}")
 
-# Inicio del bot
 async def iniciar_bot():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler(["clima", "noticias", "alerta", "river", "resumen", "ayuda"], comando))
