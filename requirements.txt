@@ -5,3 +5,4 @@ pytz
 apscheduler
 nest-asyncio
 feedparser
+Pillow
