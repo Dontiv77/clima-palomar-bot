@@ -1,7 +1,7 @@
 python-telegram-bot==13.15
-requests
+flask==3.0.2
+requests==2.32.4
 pytz
-feedparser
-nest_asyncio
 apscheduler
-Flask
+nest-asyncio
+feedparser
