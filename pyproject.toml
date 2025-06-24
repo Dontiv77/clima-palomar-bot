@@ -3,7 +3,7 @@ name = "climapalomarbot"
 version = "0.1.0"
 description = "Bot de clima y noticias"
 authors = ["Daniel Ontivero <daniel@example.com>"]
-requires-python = ">=3.11"
+requires-python = ">=3.11, <3.13"
 
 [tool.poetry.dependencies]
 flask = "^3.1.1"
