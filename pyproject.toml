@@ -6,7 +6,7 @@ authors = ["Daniel Ontivero <daniel@example.com>"]
 requires-python = ">=3.11"
 
 [tool.poetry.dependencies]
-python = ">=3.11"
+requires-python = ">=3.11, <3.13"
 flask = "^3.1.1"
 requests = "^2.32.4"
 python-telegram-bot = "13.15"
