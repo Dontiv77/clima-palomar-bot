@@ -6,6 +6,7 @@ import requests
 import logging
 import asyncio
 import feedparser
+import imghdr as imghdr_custom  # Compatibilidad para Python 3.13+
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -29,8 +30,9 @@ enviados_clima = set()
 enviados_noticias = set()
 enviados_alertas = set()
 enviados_partidos = set()
-noticias_locales_enviadas = set()   # Para avisos locales únicos
+noticias_locales_enviadas = set()
 
+# Funciones
 def obtener_clima():
     try:
         url = f'https://api.openweathermap.org/data/2.5/weather?q={CIUDAD}&appid={API_KEY}&units=metric&lang=es'
@@ -68,14 +70,12 @@ def obtener_alerta():
 def obtener_noticias():
     try:
         rss_feeds = [
-            # Policiales y generalistas
             "https://www.clarin.com/rss/policiales/",
             "https://www.infobae.com/feeds/rss/policiales.xml",
             "https://www.pagina12.com.ar/rss/policia.xml",
             "https://www.lanacion.com.ar/rss/policiales.xml",
             "https://www.tn.com.ar/rss/policiales.xml",
             "https://www.minutouno.com/rss/policiales.xml",
-            # Política
             "https://www.infobae.com/feeds/rss/politica.xml",
             "https://www.pagina12.com.ar/rss/politica.xml",
             "https://www.ambito.com/rss/politica.xml",
@@ -101,7 +101,6 @@ def obtener_noticias():
                     noticias_politica.append(f"🏛️ {titulo}\n{link}")
 
         mensaje = "📰 *Noticias destacadas:*\n"
-
         if noticias_locales:
             mensaje += "\n*Locales (Palomar, Caseros, Ciudad Jardín):*\n" + "\n".join(noticias_locales[:3])
         if noticias_policiales:
@@ -118,7 +117,6 @@ def obtener_noticias():
         logging.error(f"[NOTICIAS] {e}")
         return "⚠️ *No se pudo obtener noticias.*"
 
-# -------- ALERTA INMEDIATA DE NOTICIAS LOCALES ---------
 async def alerta_noticias_locales(app):
     try:
         zonas = ["palomar", "caseros", "ciudad jardín", "ciudad jardin", "el palomar"]
@@ -143,13 +141,10 @@ async def alerta_noticias_locales(app):
                 resumen = entry.get("summary", "")
                 link = entry.link
                 identificador = f"{titulo}_{link}"
-                if (
-                    any(z in titulo.lower() or z in resumen.lower() for z in zonas)
-                    and identificador not in noticias_locales_enviadas
-                ):
+                if any(z in titulo.lower() or z in resumen.lower() for z in zonas) and identificador not in noticias_locales_enviadas:
                     nuevas.append(f"🚨 *Noticia local urgente:*\n📍 {titulo}\n{link}")
                     noticias_locales_enviadas.add(identificador)
-        # Mandar noticias nuevas si hay
+
         for n in nuevas:
             await app.bot.send_message(chat_id=CHAT_ID, text=n, parse_mode="Markdown")
     except Exception as e:
@@ -171,6 +166,7 @@ def obtener_partido_river():
         logging.error(f"[RIVER] {e}")
     return None
 
+# Comandos del bot
 async def comando(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         texto = update.message.text
@@ -206,6 +202,7 @@ async def comando(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logging.error(f"[COMANDO] {e}")
 
+# Resumen cada 1 minuto y alertas locales
 async def resumen_periodico(app):
     try:
         ahora = datetime.now(pytz.timezone("America/Argentina/Buenos_Aires"))
@@ -238,8 +235,7 @@ async def resumen_periodico(app):
     except Exception as e:
         logging.error(f"[RESUMEN AUTOMÁTICO] {e}")
 
-# ---- ARRANQUE FINAL REPLIT ----
-
+# Inicio del bot
 async def iniciar_bot():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler(["clima", "noticias", "alerta", "river", "resumen", "ayuda"], comando))
