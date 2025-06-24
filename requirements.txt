@@ -1,8 +1,7 @@
 python-telegram-bot==20.7
-flask==3.0.2
-requests==2.32.4
-pytz
-apscheduler
-nest-asyncio
-feedparser
-Pillow
+Flask==2.3.3
+feedparser==6.0.10
+requests==2.32.3
+pytz==2025.2
+nest_asyncio==1.6.0
+apscheduler==3.10.4
