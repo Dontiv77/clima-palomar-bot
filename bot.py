@@ -93,7 +93,7 @@ async def iniciar_bot():
 
     tz = pytz.timezone("America/Argentina/Buenos_Aires")
     scheduler = AsyncIOScheduler(timezone=tz)
-    scheduler.add_job(lambda: asyncio.create_task(resumen_periodico(app)), 'interval', minutes=1)
+    scheduler.add_job(resumen_periodico, 'interval', minutes=1, args=[app])
     scheduler.start()
 
     print("✅ BOT FUNCIONANDO CORRECTAMENTE")
