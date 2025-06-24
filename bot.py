@@ -10,6 +10,8 @@ import feedparser
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from flask import Flask
+from threading import Thread
 
 # Logging
 logging.basicConfig(
@@ -28,6 +30,15 @@ enviados_clima = set()
 enviados_noticias = set()
 enviados_alertas = set()
 enviados_partidos = set()
+
+flask_app = Flask(__name__)
+
+@flask_app.route("/")
+def raiz():
+    return "Bot funcionando"
+
+def iniciar_flask():
+    flask_app.run(host="0.0.0.0", port=8080)
 
 def obtener_clima():
     try:
@@ -89,4 +100,5 @@ async def iniciar_bot():
     await app.run_polling()
 
 if __name__ == "__main__":
+    Thread(target=iniciar_flask, daemon=True).start()
     asyncio.run(iniciar_bot())
