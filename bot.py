@@ -449,6 +449,26 @@ def obtener_ruta() -> tuple[str, tuple[int, int] | None]:
     return "\n".join(lineas), tiempos
 
 
+def obtener_trafico_resumen() -> str:
+    """Resumen breve del estado de accesos principales."""
+    accesos, piquetes = obtener_accesos_piquetes()
+    lineas: list[str] = []
+    if not accesos:
+        lineas.append("⚠️ No pude obtener estado del tránsito.")
+    else:
+        estados = []
+        for a in ACCESOS_VIALES:
+            if a in accesos:
+                estados.append(f"{a}: {accesos[a]}")
+        if estados:
+            lineas.append("🚦 " + ", ".join(estados))
+    if piquetes is None:
+        lineas.append("⚠️ No pude verificar piquetes o bloqueos.")
+    elif piquetes:
+        lineas.append("🚧 " + "; ".join(piquetes[:3]))
+    return "\n".join(lineas)
+
+
 async def revisar_alertas_urgentes(app):
     """Env\u00eda mensaje si aparece una alerta meteorol\u00f3gica nueva."""
     datos = consultar_alertas()
@@ -540,6 +560,8 @@ def armar_resumen() -> str:
     if alertas:
         partes.append(alertas)
 
+    partes.append(obtener_trafico_resumen())
+
     policiales = obtener_noticias(RSS_POLICIALES, 3, solo_local=True)
     if policiales:
         partes.append("🔎 *Noticias policiales:*\n" + policiales)
@@ -548,11 +570,7 @@ def armar_resumen() -> str:
     if politica:
         partes.append("📰 *Noticias políticas:*\n" + politica)
 
-    locales = obtener_noticias(RSS_LOCALES, 3, solo_local=True)
-    if locales:
-        partes.append("🏠 *Noticias locales:*\n" + locales)
-
-    internacional = obtener_noticias(RSS_INTERNACIONAL, 1, solo_local=True)
+    internacional = obtener_noticias(RSS_INTERNACIONAL, 1)
     if internacional:
         partes.append("🌎 *Internacional:*\n" + internacional)
 
@@ -594,17 +612,21 @@ async def comando_noticias(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     try:
         partes = []
 
-        policiales = obtener_noticias(RSS_POLICIALES, solo_local=True)
+        policiales = obtener_noticias(RSS_POLICIALES, 3, solo_local=True)
         if policiales:
             partes.append("🔎 *Noticias policiales:*\n" + policiales)
 
-        politica = obtener_noticias(RSS_POLITICA, solo_local=True)
+        politica = obtener_noticias(RSS_POLITICA, 3, solo_local=True)
         if politica:
             partes.append("📰 *Noticias políticas:*\n" + politica)
 
-        locales = obtener_noticias(RSS_LOCALES, solo_local=True)
+        locales = obtener_noticias(RSS_LOCALES, 3, solo_local=True)
         if locales:
             partes.append("🏠 *Noticias locales:*\n" + locales)
+
+        internacional = obtener_noticias(RSS_INTERNACIONAL, 1)
+        if internacional:
+            partes.append("🌎 *Internacional:*\n" + internacional)
 
         if not partes:
             partes.append("⚠️ *No se pudieron obtener noticias.*")
@@ -797,12 +819,12 @@ async def iniciar_bot():
 
     tz = pytz.timezone("America/Argentina/Buenos_Aires")
     scheduler = AsyncIOScheduler(timezone=tz)
-    scheduler.add_job(enviar_resumen, "cron", hour="0,7,18", minute=0, args=[app])
+    scheduler.add_job(enviar_resumen, "cron", hour="0,7,12,18", minute=0, args=[app])
     scheduler.add_job(limpiar_enviados, "cron", hour=1, minute=0)
     scheduler.add_job(self_ping, "interval", minutes=14)
     scheduler.add_job(revisar_alertas_urgentes, "interval", minutes=5, args=[app])
     scheduler.add_job(revisar_noticias_urgentes, "interval", minutes=8, args=[app])
-    scheduler.add_job(revisar_tweets_urgentes, "interval", minutes=4, args=[app])
+    scheduler.add_job(revisar_tweets_urgentes, "interval", minutes=5, args=[app])
     scheduler.add_job(enviar_ruta, "cron", hour="7,16", minute=30, args=[app])
     scheduler.start()
 
