@@ -1,3 +1,4 @@
+print("\xe2\x9c\x85 BOT INICIADO - VERSI\xc3\x93N 2025-06-25")
 import asyncio
 import logging
 import os
