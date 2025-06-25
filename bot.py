@@ -18,7 +18,6 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 # Configuración
 API_KEY = "d2018c5d7f0737051c1d3bb6fb6e041f"
-CIUDAD = "El Palomar,AR"
 CHAT_ID = "8162211117"
 BOT_TOKEN = "8054719934:AAGkqZLv4N605PzRtAXtH28QGTqW7TjiGpY"
 
@@ -112,6 +111,9 @@ KEYWORDS_URGENTES = [
     "river vs",
 ]
 
+# Localidades a destacar en noticias
+LOCALIDADES_FILTRO = ["caseros", "palomar", "ciudad jardín", "ciudad jardin"]
+
 # Palabras que indican que una noticia es banal y debe descartarse
 IGNORE_KEYWORDS = [
     "pareja",
@@ -157,11 +159,18 @@ def iniciar_flask():
     flask_app.run(host="0.0.0.0", port=8080)
 
 
-def obtener_clima() -> str:
-    """Devuelve el clima actual en El Palomar."""
+CIUDADES_CLIMA = {
+    "El Palomar": "El Palomar,AR",
+    "Monte Grande": "Monte Grande,AR",
+    "Ezeiza": "Ezeiza,AR",
+}
+
+
+def _clima_ciudad(nombre: str, query: str) -> str | None:
+    """Devuelve mensaje de clima para una ciudad."""
     try:
         url = (
-            f"https://api.openweathermap.org/data/2.5/weather?q={CIUDAD}&appid={API_KEY}&units=metric&lang=es"
+            f"https://api.openweathermap.org/data/2.5/weather?q={query}&appid={API_KEY}&units=metric&lang=es"
         )
         r = requests.get(url)
         data = r.json()
@@ -171,15 +180,27 @@ def obtener_clima() -> str:
         viento = data["wind"]["speed"]
         humedad = data["main"]["humidity"]
         return (
-            "☁️ *Clima en El Palomar* ☁️\n"
+            f"☁️ *Clima en {nombre}* ☁️\n"
             f"🌡 Estado: *{desc.capitalize()}*\n"
             f"🌞 Temperatura: *{temp}°C* (ST: {st}°C)\n"
             f"🌬 Viento: *{viento} m/s*\n"
             f"💧 Humedad: *{humedad}%*"
         )
     except Exception as e:  # pragma: no cover - red de terceros
-        logging.error(f"[CLIMA] {e}")
-        return "⚠️ No pude obtener el clima. Intentá más tarde."
+        logging.error(f"[CLIMA {nombre}] {e}")
+        return None
+
+
+def obtener_clima() -> str:
+    """Devuelve el clima de las ciudades configuradas."""
+    partes: list[str] = []
+    for nombre, query in CIUDADES_CLIMA.items():
+        msg = _clima_ciudad(nombre, query)
+        if msg:
+            partes.append(msg)
+    if partes:
+        return "\n\n".join(partes)
+    return "⚠️ No pude obtener el clima. Intentá más tarde."
 
 
 def consultar_alertas() -> dict[str, list[str]]:
@@ -222,7 +243,7 @@ def _resumen(texto: str) -> str:
     return limpio
 
 
-def obtener_noticias(url: str, cantidad: int = 5) -> str | None:
+def obtener_noticias(url: str, cantidad: int = 5, solo_local: bool = False) -> str | None:
     """Extrae noticias nuevas desde un feed RSS aplicando filtros."""
     try:
         feed = feedparser.parse(url)
@@ -235,6 +256,8 @@ def obtener_noticias(url: str, cantidad: int = 5) -> str | None:
             titulo = entry.get("title", "(sin titulo)")
             texto = f"{titulo} {entry.get('summary', '')}".lower()
             if any(b in texto for b in IGNORE_KEYWORDS):
+                continue
+            if solo_local and not any(l in texto for l in LOCALIDADES_FILTRO):
                 continue
             if not any(k in texto for k in KEYWORDS_URGENTES):
                 continue
@@ -517,19 +540,19 @@ def armar_resumen() -> str:
     if alertas:
         partes.append(alertas)
 
-    policiales = obtener_noticias(RSS_POLICIALES, 3)
+    policiales = obtener_noticias(RSS_POLICIALES, 3, solo_local=True)
     if policiales:
         partes.append("🔎 *Noticias policiales:*\n" + policiales)
 
-    politica = obtener_noticias(RSS_POLITICA, 3)
+    politica = obtener_noticias(RSS_POLITICA, 3, solo_local=True)
     if politica:
         partes.append("📰 *Noticias políticas:*\n" + politica)
 
-    locales = obtener_noticias(RSS_LOCALES, 3)
+    locales = obtener_noticias(RSS_LOCALES, 3, solo_local=True)
     if locales:
         partes.append("🏠 *Noticias locales:*\n" + locales)
 
-    internacional = obtener_noticias(RSS_INTERNACIONAL, 1)
+    internacional = obtener_noticias(RSS_INTERNACIONAL, 1, solo_local=True)
     if internacional:
         partes.append("🌎 *Internacional:*\n" + internacional)
 
@@ -571,15 +594,15 @@ async def comando_noticias(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     try:
         partes = []
 
-        policiales = obtener_noticias(RSS_POLICIALES)
+        policiales = obtener_noticias(RSS_POLICIALES, solo_local=True)
         if policiales:
             partes.append("🔎 *Noticias policiales:*\n" + policiales)
 
-        politica = obtener_noticias(RSS_POLITICA)
+        politica = obtener_noticias(RSS_POLITICA, solo_local=True)
         if politica:
             partes.append("📰 *Noticias políticas:*\n" + politica)
 
-        locales = obtener_noticias(RSS_LOCALES)
+        locales = obtener_noticias(RSS_LOCALES, solo_local=True)
         if locales:
             partes.append("🏠 *Noticias locales:*\n" + locales)
 
@@ -774,7 +797,7 @@ async def iniciar_bot():
 
     tz = pytz.timezone("America/Argentina/Buenos_Aires")
     scheduler = AsyncIOScheduler(timezone=tz)
-    scheduler.add_job(enviar_resumen, "cron", hour="0,7,12,18", minute=0, args=[app])
+    scheduler.add_job(enviar_resumen, "cron", hour="0,7,18", minute=0, args=[app])
     scheduler.add_job(limpiar_enviados, "cron", hour=1, minute=0)
     scheduler.add_job(self_ping, "interval", minutes=14)
     scheduler.add_job(revisar_alertas_urgentes, "interval", minutes=5, args=[app])

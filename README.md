@@ -1,11 +1,11 @@
 # Clima Palomar Bot
 
-Bot automático para Telegram. Informa clima, noticias destacadas (policiales, políticas y locales de Palomar, Caseros y Ciudad Jardín), alertas y próximos partidos de River.
+Bot automático para Telegram. Informa clima (Palomar, Monte Grande y Ezeiza), noticias destacadas filtradas por Palomar, Caseros y Ciudad Jardín, alertas y próximos partidos de River.
 
 ## Comandos
 
 ```
-/clima     - Clima y alertas actuales
+/clima     - Clima y alertas de Palomar, Monte Grande y Ezeiza
 /noticias  - Últimas noticias
 /river     - Partido de River del día
 /alertas   - Ver alertas activas
