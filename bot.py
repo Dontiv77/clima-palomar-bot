@@ -255,13 +255,14 @@ def obtener_noticias(url: str, cantidad: int = 5) -> str | None:
         return "⚠️ No pude obtener noticias. Intentá más tarde."
 
 
-def _parse_river_html(html: str, now: datetime) -> tuple[str | None, datetime | None, str | None]:
-    """Extrae rival, fecha y raw desde HTML."""
+def _parse_river_html(html: str, now: datetime) -> tuple[str | None, datetime | None, str | None, str | None]:
+    """Extrae rival, fecha, torneo y texto crudo desde HTML."""
     soup = BeautifulSoup(html, "html.parser")
     texto = soup.get_text(" ", strip=True)
     raw_date = None
     rival = None
     fecha = None
+    torneo = None
 
     m_fecha = re.search(r"(\d{1,2}/\d{1,2}(?:/\d{2,4})?)\s*(\d{1,2}:\d{2})", texto)
     if m_fecha:
@@ -281,7 +282,20 @@ def _parse_river_html(html: str, now: datetime) -> tuple[str | None, datetime | 
     if m_rival:
         rival = m_rival.group(1).strip()
 
-    return rival, fecha, raw_date
+    torneos = [
+        "liga profesional",
+        "copa de la liga",
+        "copa argentina",
+        "copa libertadores",
+        "copa sudamericana",
+        "supercopa",
+    ]
+    for t in torneos:
+        if re.search(t, texto, re.I):
+            torneo = t.title()
+            break
+
+    return rival, fecha, raw_date, torneo
 
 
 def obtener_partido_river(debug: bool = False) -> str | None:
@@ -290,14 +304,17 @@ def obtener_partido_river(debug: bool = False) -> str | None:
         html = requests.get(RIVER_URL, timeout=10).text
         tz = pytz.timezone("America/Argentina/Buenos_Aires")
         ahora = datetime.now(tz)
-        rival, fecha, raw = _parse_river_html(html, ahora)
+        rival, fecha, raw, torneo = _parse_river_html(html, ahora)
         if debug:
             return f"Fuente: {RIVER_URL}\nRaw: {raw}\nFecha local: {fecha}"
         if fecha and fecha.date() == ahora.date():
             hora = fecha.strftime("%H:%M")
+            partes = [f"🏟 River juega hoy a las {hora}"]
             if rival:
-                return f"🏟 River juega hoy a las {hora} vs {rival}"
-            return f"🏟 River juega hoy a las {hora}"
+                partes.append(f"vs {rival}")
+            if torneo:
+                partes.append(f"({torneo})")
+            return " ".join(partes)
         return None
     except Exception as e:  # pragma: no cover - red de terceros
         logging.error(f"[RIVER] {e}")
@@ -305,22 +322,30 @@ def obtener_partido_river(debug: bool = False) -> str | None:
 
 
 
-def obtener_trafico() -> tuple[int, int] | None:
-    """Calcula duración de ida y vuelta a Ezeiza en minutos."""
+def _ruta_osrm(lon1: float, lat1: float, lon2: float, lat2: float) -> tuple[int, list[str]]:
+    """Consulta OSRM y devuelve duración en minutos y pasos simplificados."""
+    url = (
+        f"https://router.project-osrm.org/route/v1/driving/{lon1},{lat1};{lon2},{lat2}?overview=false&steps=true"
+    )
+    data = requests.get(url).json()
+    dur = int(data["routes"][0]["duration"] / 60)
+    pasos: list[str] = []
+    for s in data["routes"][0]["legs"][0].get("steps", []):
+        name = s.get("name")
+        if name and name not in pasos:
+            pasos.append(name)
+    return dur, pasos
+
+
+def obtener_trafico() -> tuple[int, int, list[str], list[str]] | None:
+    """Duración ida/vuelta y rutas sugeridas."""
     try:
         lon_o, lat_o = ORIGEN_COORDS[1], ORIGEN_COORDS[0]
         lon_d, lat_d = DESTINO_COORDS[1], DESTINO_COORDS[0]
 
-        def _dur(lon1: float, lat1: float, lon2: float, lat2: float) -> int:
-            url = (
-                f"https://router.project-osrm.org/route/v1/driving/{lon1},{lat1};{lon2},{lat2}?overview=false"
-            )
-            data = requests.get(url).json()
-            return int(data["routes"][0]["duration"] / 60)
-
-        ida = _dur(lon_o, lat_o, lon_d, lat_d)
-        vuelta = _dur(lon_d, lat_d, lon_o, lat_o)
-        return ida, vuelta
+        ida_dur, ida_steps = _ruta_osrm(lon_o, lat_o, lon_d, lat_d)
+        vuelta_dur, vuelta_steps = _ruta_osrm(lon_d, lat_d, lon_o, lat_o)
+        return ida_dur, vuelta_dur, ida_steps, vuelta_steps
     except Exception as e:  # pragma: no cover - red de terceros
         logging.error(f"[RUTA] {e}")
         return None
@@ -343,17 +368,47 @@ def obtener_estado_accesos() -> dict[str, str] | None:
         return None
 
 
+def obtener_accesos_piquetes() -> tuple[dict[str, str] | None, list[str] | None]:
+    """Estados de accesos y lista de piquetes/bloqueos."""
+    try:
+        data = requests.get(TRAFFIC_URL, timeout=10).json()
+        accesos: dict[str, str] = {}
+        for item in data.get("accesos", []):
+            nombre = item.get("nombre", "")
+            estado = item.get("estado", "")
+            for acceso in ACCESOS_VIALES:
+                if acceso.lower() in nombre.lower():
+                    accesos[acceso] = estado
+        piquetes: list[str] = []
+        for bloqueos in [data.get("piquetes"), data.get("cortes"), data.get("incidentes")]:
+            if isinstance(bloqueos, list):
+                for b in bloqueos:
+                    desc = b.get("descripcion") or b.get("lugar") or b.get("ubicacion")
+                    if desc:
+                        piquetes.append(desc)
+        return accesos, piquetes
+    except Exception as e:  # pragma: no cover - red de terceros
+        logging.error(f"[PIQUETES] {e}")
+        return None, None
+
+
 def obtener_ruta() -> tuple[str, tuple[int, int] | None]:
-    """Devuelve texto de tránsito ida y vuelta y estados de accesos."""
-    tiempos = obtener_trafico()
+    """Devuelve texto de tránsito ida y vuelta con rutas y estados."""
+    datos = obtener_trafico()
     estados = obtener_estado_accesos()
     lineas: list[str] = []
-    if not tiempos:
+    if not datos:
         lineas.append("⚠️ No pude obtener la ruta. Intentá más tarde.")
     else:
-        ida, vuelta = tiempos
-        lineas.append(f"✅ Ida (Palomar → Ezeiza): {ida} minutos")
-        lineas.append(f"🔁 Vuelta (Ezeiza → Palomar): {vuelta} minutos")
+        ida, vuelta, pasos_ida, pasos_vuelta = datos
+        linea_ida = f"Ida: {ida} min"
+        if pasos_ida:
+            linea_ida += " por " + " + ".join(pasos_ida[:4])
+        linea_vuelta = f"Vuelta: {vuelta} min"
+        if pasos_vuelta:
+            linea_vuelta += " por " + " + ".join(pasos_vuelta[:4])
+        lineas.append(linea_ida)
+        lineas.append(linea_vuelta)
     if not estados:
         lineas.append("⚠️ No pude obtener estado del tránsito. Intentá más tarde.")
     else:
@@ -367,6 +422,7 @@ def obtener_ruta() -> tuple[str, tuple[int, int] | None]:
                     alertas.append(f"⚠️ Corte en {acceso} — buscar desvío")
         if alertas:
             lineas.extend(alertas)
+    tiempos = None if not datos else (ida, vuelta)
     return "\n".join(lineas), tiempos
 
 
@@ -586,8 +642,31 @@ async def comando_ruta(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 async def comando_trafico(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Alias de /ruta para compatibilidad."""
-    await comando_ruta(update, context)
+    """Informa estado de accesos y piquetes."""
+    try:
+        accesos, piquetes = obtener_accesos_piquetes()
+        lineas: list[str] = []
+        if not accesos:
+            lineas.append("⚠️ No pude obtener estado del tránsito. Intentá más tarde.")
+        else:
+            lineas.append("🚦 Estado accesos:")
+            for acceso in ACCESOS_VIALES:
+                if acceso in accesos:
+                    lineas.append(f"• {acceso}: {accesos[acceso]}")
+        if piquetes is None:
+            lineas.append("⚠️ No pude verificar piquetes o bloqueos.")
+        elif piquetes:
+            lineas.append("🚧 Piquetes/bloqueos activos:")
+            lineas.extend(f"• {p}" for p in piquetes)
+        else:
+            lineas.append("Sin piquetes ni bloqueos reportados.")
+        await update.message.reply_text(
+            "\n".join(lineas),
+            parse_mode="Markdown",
+            disable_web_page_preview=True,
+        )
+    except Exception as e:  # pragma: no cover - red de terceros
+        logging.error(f"[COMANDO /trafico] {e}")
 
 
 async def comando_alertas(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -613,7 +692,8 @@ async def comando_ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             "/river - Partido de River de hoy",
             "/debug_river - Info depuración River",
             "/alertas - Ver alertas climáticas",
-            "/trafico - Tránsito a Ezeiza",
+            "/trafico - Estado de accesos AMBA",
+            "/ruta - Ruta al trabajo y a casa",
             "/resumen - Resumen manual",
             "/ayuda - Lista de comandos",
         ]
