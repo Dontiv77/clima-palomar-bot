@@ -9,7 +9,8 @@ Bot automático para Telegram. Informa clima, noticias destacadas (policiales, p
 /noticias  - Últimas noticias
 /river     - Partido de River del día
 /alertas   - Ver alertas activas
-/trafico   - Tr\u00e1nsito a Ezeiza
+/trafico   - Tr\u00e1nsito y accesos viales
+/debug_river - Debug del partido de River
 /resumen   - Resumen completo
 /ayuda     - Esta ayuda
 /ping      - Endpoint de keep-alive
