@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from datetime import datetime
 
 import feedparser
@@ -44,6 +45,12 @@ flask_app = Flask(__name__)
 @flask_app.route("/")
 def raiz():
     return "Bot funcionando"
+
+
+@flask_app.route("/ping")
+def keep_alive() -> str:
+    """Endpoint para que Render no apague el bot."""
+    return "ok"
 
 
 def iniciar_flask():
@@ -273,6 +280,17 @@ def limpiar_enviados():
     enviados_partidos.clear()
 
 
+def self_ping() -> None:
+    """Envía un ping a la propia aplicación cada 14 minutos."""
+    url = os.environ.get("RENDER_EXTERNAL_URL")
+    if not url:
+        return
+    try:
+        requests.get(f"{url}/ping", timeout=10)
+    except Exception as e:  # pragma: no cover - red de terceros
+        logging.error(f"[SELF PING] {e}")
+
+
 async def iniciar_bot():
     nest_asyncio.apply()
     app = ApplicationBuilder().token(BOT_TOKEN).build()
@@ -287,6 +305,7 @@ async def iniciar_bot():
     scheduler = AsyncIOScheduler(timezone=tz)
     scheduler.add_job(enviar_resumen, "cron", hour="0,7,12,18", minute=0, args=[app])
     scheduler.add_job(limpiar_enviados, "cron", hour=1, minute=0)
+    scheduler.add_job(self_ping, "interval", minutes=14)
     scheduler.start()
 
     print("✅ BOT FUNCIONANDO CORRECTAMENTE")
