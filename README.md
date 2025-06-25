@@ -22,3 +22,6 @@ archivo `runtime.txt` para fijar la versión `python-3.10.13`.
 El bot utiliza **APScheduler** para ejecutar tareas automáticas y se auto-
 envía un `ping` cada 14 minutos a la ruta `/ping` para evitar que Render
 detenga el contenedor en el plan gratuito.
+
+Además detecta alertas meteorológicas nuevas y noticias urgentes con palabras
+clave (asalto, tiroteo, guerra, etc.) para enviarlas inmediatamente al chat.

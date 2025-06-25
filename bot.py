@@ -28,6 +28,26 @@ RSS_RIVER = "https://www.promiedos.com.ar/rss2.php?c=river"
 # Estado
 enviados_noticias: set[str] = set()
 enviados_partidos: set[str] = set()
+enviados_urgentes: set[str] = set()
+enviadas_alertas: set[str] = set()
+
+KEYWORDS_URGENTES = [
+    "asalto",
+    "tiroteo",
+    "nieve",
+    "temporal",
+    "evacuación",
+    "homicidio",
+    "caseros",
+    "palomar",
+    "morón",
+    "ciudad jardín",
+    "guerra",
+    "putin",
+    "crisis",
+    "atentado",
+    "eeuu",
+]
 
 
 # Logging
@@ -82,10 +102,9 @@ def obtener_clima() -> str:
         return "⚠️ *No se pudo obtener el clima.*"
 
 
-def obtener_alertas() -> str | None:
-    """Consulta alertas meteorológicas activas."""
+def consultar_alertas() -> list[str]:
+    """Obtiene lista de eventos de alertas meteorológicas."""
     try:
-        # Primero obtenemos lat/lon de la ciudad
         url = (
             f"https://api.openweathermap.org/data/2.5/weather?q={CIUDAD}&appid={API_KEY}&units=metric&lang=es"
         )
@@ -97,17 +116,20 @@ def obtener_alertas() -> str | None:
         )
         datos = requests.get(url_alert).json()
         if "alerts" not in datos:
-            return None
-        mensajes = []
-        for alert in datos["alerts"]:
-            evento = alert.get("event", "Alerta")
-            mensajes.append(f"- *{evento}*")
-        if mensajes:
-            return "⚠️ *Alertas meteorológicas:*\n" + "\n".join(mensajes)
-        return None
+            return []
+        return [a.get("event", "Alerta") for a in datos["alerts"]]
     except Exception as e:  # pragma: no cover - red de terceros
         logging.error(f"[ALERTAS] {e}")
+        return []
+
+
+def obtener_alertas() -> str | None:
+    """Consulta alertas meteorológicas activas."""
+    eventos = consultar_alertas()
+    if not eventos:
         return None
+    mensajes = [f"- *{ev}*" for ev in eventos]
+    return "⚠️ *Alertas meteorológicas:*\n" + "\n".join(mensajes)
 
 
 def obtener_noticias(url: str, cantidad: int = 5) -> str | None:
@@ -148,6 +170,50 @@ def obtener_partido_river() -> str | None:
     except Exception as e:  # pragma: no cover - red de terceros
         logging.error(f"[RIVER] {e}")
         return None
+
+
+async def revisar_alertas_urgentes(app):
+    """Envía mensaje si aparece una alerta meteorológica nueva."""
+    eventos = consultar_alertas()
+    nuevos = [e for e in eventos if e not in enviadas_alertas]
+    for e in nuevos:
+        enviadas_alertas.add(e)
+    if nuevos:
+        msg = "⚠️ *Nueva alerta meteorológica:*\n" + "\n".join(f"- *{n}*" for n in nuevos)
+        try:
+            await app.bot.send_message(
+                chat_id=CHAT_ID,
+                text=msg,
+                parse_mode="Markdown",
+                disable_web_page_preview=True,
+            )
+        except Exception as e:  # pragma: no cover - red de terceros
+            logging.error(f"[ALERTA URGENTE] {e}")
+
+
+async def revisar_noticias_urgentes(app):
+    """Detecta noticias con palabras clave y las envia inmediatamente."""
+    feeds = [RSS_POLICIALES, RSS_POLITICA, RSS_LOCALES]
+    for url in feeds:
+        try:
+            feed = feedparser.parse(url)
+            for entry in feed.entries:
+                enlace = entry.get("link")
+                titulo = entry.get("title", "").lower()
+                if not enlace or enlace in enviados_urgentes:
+                    continue
+                if any(kw in titulo for kw in KEYWORDS_URGENTES):
+                    enviados_urgentes.add(enlace)
+                    texto = entry.get("title", "(sin titulo)")
+                    msg = f"🚨 *Noticia urgente:* [{texto}]({enlace})"
+                    await app.bot.send_message(
+                        chat_id=CHAT_ID,
+                        text=msg,
+                        parse_mode="Markdown",
+                        disable_web_page_preview=True,
+                    )
+        except Exception as e:  # pragma: no cover - red de terceros
+            logging.error(f"[NOTICIA URGENTE] {e}")
 
 
 def armar_resumen() -> str:
@@ -275,9 +341,11 @@ async def enviar_resumen(app):
 
 
 def limpiar_enviados():
-    """Reinicia sets de noticias y partidos."""
+    """Reinicia sets de noticias y alertas."""
     enviados_noticias.clear()
     enviados_partidos.clear()
+    enviados_urgentes.clear()
+    enviadas_alertas.clear()
 
 
 def self_ping() -> None:
@@ -306,6 +374,8 @@ async def iniciar_bot():
     scheduler.add_job(enviar_resumen, "cron", hour="0,7,12,18", minute=0, args=[app])
     scheduler.add_job(limpiar_enviados, "cron", hour=1, minute=0)
     scheduler.add_job(self_ping, "interval", minutes=14)
+    scheduler.add_job(revisar_alertas_urgentes, "interval", minutes=15, args=[app])
+    scheduler.add_job(revisar_noticias_urgentes, "interval", minutes=10, args=[app])
     scheduler.start()
 
     print("✅ BOT FUNCIONANDO CORRECTAMENTE")
