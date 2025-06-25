@@ -47,6 +47,23 @@ enviados_noticias: set[str] = set()
 enviados_partidos: set[str] = set()
 enviados_urgentes: set[str] = set()
 enviadas_alertas: set[str] = set()
+enviados_tweets: set[str] = set()
+
+TWITTER_CUENTAS = [
+    "SMN_Argentina",
+    "defensacivilBA",
+    "solotransito",
+    "EmergenciasBA",
+    "CronicaPolicial",
+    "alertastransito",
+    "AutopistasBA",
+    "InfoTransitoBA",
+    "AUSAOk",
+    "traficoSatelital",
+    "RiverPlate",
+    "RiverInfoPlate",
+    "PolloVignolo",
+]
 
 KEYWORDS_URGENTES = [
     "asalto",
@@ -73,6 +90,14 @@ KEYWORDS_URGENTES = [
     "crisis",
     "atentado",
     "eeuu",
+    "granizo",
+    "alerta roja",
+    "riccheri",
+    "panamericana",
+    "general paz",
+    "25 de mayo",
+    "corte",
+    "congestion",
 ]
 
 
@@ -264,6 +289,30 @@ async def revisar_noticias_urgentes(app):
             logging.error(f"[NOTICIA URGENTE] {e}")
 
 
+async def revisar_tweets_urgentes(app):
+    """Chequea cuentas de Twitter por palabras clave de alerta."""
+    for cuenta in TWITTER_CUENTAS:
+        try:
+            feed = feedparser.parse(f"https://nitter.net/{cuenta}/rss")
+            for entry in feed.entries:
+                enlace = entry.get("link")
+                titulo = entry.get("title", "").lower()
+                if not enlace or enlace in enviados_tweets:
+                    continue
+                if any(kw in titulo for kw in KEYWORDS_URGENTES):
+                    enviados_tweets.add(enlace)
+                    texto = entry.get("title", "(sin titulo)")
+                    msg = f"🚨 *Tweet urgente:* [{texto}]({enlace})"
+                    await app.bot.send_message(
+                        chat_id=CHAT_ID,
+                        text=msg,
+                        parse_mode="Markdown",
+                        disable_web_page_preview=True,
+                    )
+        except Exception as e:  # pragma: no cover - red de terceros
+            logging.error(f"[TWITTER {cuenta}] {e}")
+
+
 def armar_resumen() -> str:
     """Construye el mensaje de resumen."""
     partes = [obtener_clima()]
@@ -376,6 +425,11 @@ async def comando_ruta(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         logging.error(f"[COMANDO /ruta] {e}")
 
 
+async def comando_trafico(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Alias de /ruta para compatibilidad."""
+    await comando_ruta(update, context)
+
+
 async def comando_alertas(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Muestra las alertas clim\u00e1ticas activas."""
     try:
@@ -398,7 +452,7 @@ async def comando_ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             "/noticias - Últimas noticias",
             "/river - Partido de River de hoy",
             "/alertas - Ver alertas climáticas",
-            "/ruta - Tránsito a Ezeiza",
+            "/trafico - Tránsito a Ezeiza",
             "/resumen - Resumen manual",
             "/ayuda - Lista de comandos",
         ]
@@ -460,7 +514,8 @@ async def iniciar_bot():
     app.add_handler(CommandHandler("noticias", comando_noticias))
     app.add_handler(CommandHandler("river", comando_river))
     app.add_handler(CommandHandler("ruta", comando_ruta))
-    app.add_handler(CommandHandler("transito", comando_ruta))
+    app.add_handler(CommandHandler("transito", comando_trafico))
+    app.add_handler(CommandHandler("trafico", comando_trafico))
     app.add_handler(CommandHandler("alertas", comando_alertas))
     app.add_handler(CommandHandler("ayuda", comando_ayuda))
 
@@ -469,8 +524,9 @@ async def iniciar_bot():
     scheduler.add_job(enviar_resumen, "cron", hour="0,7,12,18", minute=0, args=[app])
     scheduler.add_job(limpiar_enviados, "cron", hour=1, minute=0)
     scheduler.add_job(self_ping, "interval", minutes=14)
-    scheduler.add_job(revisar_alertas_urgentes, "interval", minutes=15, args=[app])
-    scheduler.add_job(revisar_noticias_urgentes, "interval", minutes=10, args=[app])
+    scheduler.add_job(revisar_alertas_urgentes, "interval", minutes=5, args=[app])
+    scheduler.add_job(revisar_noticias_urgentes, "interval", minutes=8, args=[app])
+    scheduler.add_job(revisar_tweets_urgentes, "interval", minutes=4, args=[app])
     scheduler.add_job(enviar_ruta, "cron", hour="7,16", minute=30, args=[app])
     scheduler.start()
 

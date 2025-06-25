@@ -9,7 +9,7 @@ Bot automático para Telegram. Informa clima, noticias destacadas (policiales, p
 /noticias  - Últimas noticias
 /river     - Partido de River del día
 /alertas   - Ver alertas activas
-/ruta      - Tr\u00e1nsito a Ezeiza
+/trafico   - Tr\u00e1nsito a Ezeiza
 /resumen   - Resumen completo
 /ayuda     - Esta ayuda
 ```
@@ -24,6 +24,9 @@ archivo `runtime.txt` para fijar la versión `python-3.10.13`.
 El bot utiliza **APScheduler** para ejecutar tareas automáticas y se auto-
 envía un `ping` cada 14 minutos a la ruta `/ping` para evitar que Render
 detenga el contenedor en el plan gratuito.
+
+También consulta alertas climáticas y monitorea cuentas de Twitter para
+detectar mensajes urgentes sobre clima, tránsito o seguridad.
 
 Además revisa alertas meteorológicas y noticias urgentes (accidentes,
 guerra, cortes de tránsito) para enviarlas al instante.
