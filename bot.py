@@ -98,6 +98,7 @@ KEYWORDS_URGENTES = [
     "25 de mayo",
     "corte",
     "congestion",
+    "river vs",
 ]
 
 
@@ -167,7 +168,7 @@ def consultar_alertas() -> dict[str, list[str]]:
                 resultados[nombre] = eventos
         except Exception as e:  # pragma: no cover - red de terceros
             logging.error(f"[ALERTAS {nombre}] {e}")
-            return None
+            continue
     return resultados
 
 
@@ -244,6 +245,8 @@ def obtener_ruta() -> str:
 async def revisar_alertas_urgentes(app):
     """Env\u00eda mensaje si aparece una alerta meteorol\u00f3gica nueva."""
     datos = consultar_alertas()
+    if not datos:
+        return
     nuevos: list[str] = []
     for ciudad, eventos in datos.items():
         for ev in eventos:
