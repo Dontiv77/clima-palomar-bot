@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 from datetime import datetime
+import re
 
 import feedparser
 import nest_asyncio
@@ -208,38 +209,85 @@ def obtener_noticias(url: str, cantidad: int = 5) -> str | None:
 
 
 def obtener_partido_river() -> str | None:
-    """Devuelve el partido de River si juega hoy."""
+    """Devuelve información del partido de River si se juega hoy."""
     try:
         feed = feedparser.parse(RSS_RIVER)
         tz = pytz.timezone("America/Argentina/Buenos_Aires")
-        hoy = datetime.now(tz).strftime("%d/%m/%Y")
+        hoy = datetime.now(tz).date()
         for entry in feed.entries:
-            texto = entry.get("title", "")
-            if hoy in texto:
-                enlace = entry.get("link", "")
-                if enlace not in enviados_partidos:
-                    enviados_partidos.add(enlace)
-                    return f"⚽️ *{texto}*"
+            fecha: datetime | None = None
+            if entry.get("published_parsed"):
+                fecha = (
+                    datetime(*entry.published_parsed[:6], tzinfo=pytz.utc)
+                    .astimezone(tz)
+                )
+            elif entry.get("published"):
+                try:
+                    fecha = (
+                        datetime.strptime(
+                            entry.published, "%a, %d %b %Y %H:%M:%S %z"
+                        ).astimezone(tz)
+                    )
+                except Exception:
+                    fecha = None
+            if not fecha:
+                texto = f"{entry.get('title', '')} {entry.get('summary', '')}".lower()
+                m = re.search(r"(\d{1,2}/\d{1,2})\s+(\d{1,2}:\d{2})", texto)
+                if m:
+                    try:
+                        dia, hora = m.groups()
+                        fecha = tz.localize(
+                            datetime.strptime(
+                                f"{dia}/{datetime.now(tz).year} {hora}",
+                                "%d/%m/%Y %H:%M",
+                            )
+                        )
+                    except Exception:
+                        fecha = None
+            if fecha and fecha.date() == hoy:
+                hora = fecha.strftime("%H:%M")
+                titulo = entry.get("title", "")
+                m = re.search(r"vs\.?\s*([^\-|]+)", titulo, re.IGNORECASE)
+                rival = m.group(1).strip() if m else titulo
+                return f"🏟 River juega hoy vs {rival} a las {hora}"
         return None
     except Exception as e:  # pragma: no cover - red de terceros
         logging.error(f"[RIVER] {e}")
-        return "⚠️ No pude obtener informaci\u00f3n de River. Intent\u00e1 m\u00e1s tarde."
+        return "⚠️ No pude obtener información de River. Intentá más tarde."
+
+
+
+def obtener_trafico() -> tuple[int, int] | None:
+    """Calcula duración de ida y vuelta a Ezeiza en minutos."""
+    try:
+        lon_o, lat_o = ORIGEN_COORDS[1], ORIGEN_COORDS[0]
+        lon_d, lat_d = DESTINO_COORDS[1], DESTINO_COORDS[0]
+
+        def _dur(lon1: float, lat1: float, lon2: float, lat2: float) -> int:
+            url = (
+                f"https://router.project-osrm.org/route/v1/driving/{lon1},{lat1};{lon2},{lat2}?overview=false"
+            )
+            data = requests.get(url).json()
+            return int(data["routes"][0]["duration"] / 60)
+
+        ida = _dur(lon_o, lat_o, lon_d, lat_d)
+        vuelta = _dur(lon_d, lat_d, lon_o, lat_o)
+        return ida, vuelta
+    except Exception as e:  # pragma: no cover - red de terceros
+        logging.error(f"[RUTA] {e}")
+        return None
 
 
 def obtener_ruta() -> str:
-    """Calcula la ruta m\u00e1s r\u00e1pida entre el origen y Ezeiza."""
-    try:
-        lon1, lat1 = ORIGEN_COORDS[1], ORIGEN_COORDS[0]
-        lon2, lat2 = DESTINO_COORDS[1], DESTINO_COORDS[0]
-        url = (
-            f"https://router.project-osrm.org/route/v1/driving/{lon1},{lat1};{lon2},{lat2}?overview=false"
-        )
-        data = requests.get(url).json()
-        dur = data["routes"][0]["duration"] / 60
-        return f"🚗 Tiempo estimado a Ezeiza: *{int(dur)} minutos*."
-    except Exception as e:  # pragma: no cover - red de terceros
-        logging.error(f"[RUTA] {e}")
-        return "⚠️ No pude obtener la ruta. Intent\u00e1 m\u00e1s tarde."
+    """Devuelve texto de tránsito ida y vuelta."""
+    tiempos = obtener_trafico()
+    if not tiempos:
+        return "⚠️ No pude obtener la ruta. Intentá más tarde."
+    ida, vuelta = tiempos
+    return (
+        f"🚗 Ida (Palomar → Ezeiza): {ida} minutos\n"
+        f"🔁 Vuelta (Ezeiza → Palomar): {vuelta} minutos"
+    )
 
 
 async def revisar_alertas_urgentes(app):
@@ -406,7 +454,7 @@ async def comando_river(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     """Informa si River juega hoy y resultado si está disponible."""
     try:
         partido = obtener_partido_river()
-        mensaje = partido or "No hay partido de River programado para hoy."
+        mensaje = partido or "ℹ️ River no tiene partido programado para hoy."
         await update.message.reply_text(
             mensaje,
             parse_mode="Markdown",
@@ -417,13 +465,28 @@ async def comando_river(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def comando_ruta(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Muestra la mejor ruta a Ezeiza."""
+    """Muestra el tránsito a Ezeiza ida y vuelta."""
     try:
+        tiempos = obtener_trafico()
+        if not tiempos:
+            mensaje = "⚠️ No pude obtener la ruta. Intentá más tarde."
+        else:
+            ida, vuelta = tiempos
+            mensaje = (
+                f"🚗 Ida (Palomar → Ezeiza): {ida} minutos\n"
+                f"🔁 Vuelta (Ezeiza → Palomar): {vuelta} minutos"
+            )
         await update.message.reply_text(
-            obtener_ruta(),
+            mensaje,
             parse_mode="Markdown",
             disable_web_page_preview=True,
         )
+        if tiempos and max(tiempos) > 60:
+            await update.message.reply_text(
+                f"⚠️ Demora crítica en el tránsito a Ezeiza: {max(tiempos)} minutos\nRevisá rutas alternativas.",
+                parse_mode="Markdown",
+                disable_web_page_preview=True,
+            )
     except Exception as e:  # pragma: no cover - red de terceros
         logging.error(f"[COMANDO /ruta] {e}")
 
@@ -477,14 +540,33 @@ async def enviar_resumen(app):
 
 
 async def enviar_ruta(app):
-    """Envía la información de tránsito."""
+    """Envía la información de tránsito y alerta por demoras."""
     try:
+        tiempos = obtener_trafico()
+        if not tiempos:
+            mensaje = "⚠️ No pude obtener la ruta. Intentá más tarde."
+        else:
+            ida, vuelta = tiempos
+            mensaje = (
+                f"🚗 Ida (Palomar → Ezeiza): {ida} minutos\n"
+                f"🔁 Vuelta (Ezeiza → Palomar): {vuelta} minutos"
+            )
         await app.bot.send_message(
             chat_id=CHAT_ID,
-            text=obtener_ruta(),
+            text=mensaje,
             parse_mode="Markdown",
             disable_web_page_preview=True,
         )
+        if tiempos and max(tiempos) > 60:
+            await app.bot.send_message(
+                chat_id=CHAT_ID,
+                text=(
+                    f"⚠️ Demora crítica en el tránsito a Ezeiza: {max(tiempos)} minutos\n"
+                    "Revisá rutas alternativas."
+                ),
+                parse_mode="Markdown",
+                disable_web_page_preview=True,
+            )
     except Exception as e:  # pragma: no cover - red de terceros
         logging.error(f"[ENVÍO RUTA] {e}")
 
