@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 import re
 
 import feedparser
@@ -218,7 +218,7 @@ def obtener_partido_river() -> str | None:
             fecha: datetime | None = None
             if entry.get("published_parsed"):
                 fecha = (
-                    datetime(*entry.published_parsed[:6], tzinfo=pytz.utc)
+                    datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
                     .astimezone(tz)
                 )
             elif entry.get("published"):
