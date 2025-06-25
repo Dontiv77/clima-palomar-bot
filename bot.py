@@ -88,6 +88,18 @@ KEYWORDS_URGENTES = [
     "estados unidos",
     "presidente",
     "militares",
+    "granizo",
+    "tormenta",
+    "alerta roja",
+    "corte",
+    "protesta",
+    "accidente",
+    "panamericana",
+    "general paz",
+    "riccheri",
+    "acceso oeste",
+    "25 de mayo",
+    "river vs",
 ]
 
 # Palabras que indican que una noticia es banal y debe descartarse
@@ -274,6 +286,13 @@ def obtener_partido_river() -> str | None:
                 titulo = entry.get("title", "")
                 m = re.search(r"vs\.?\s*([^\-|]+)", titulo, re.IGNORECASE)
                 rival = m.group(1).strip() if m else titulo
+                estadio = None
+                resumen = entry.get("summary", "")
+                m = re.search(r"(Estadio\s+[^.,|]+)", resumen, re.IGNORECASE)
+                if m:
+                    estadio = m.group(1).strip()
+                if estadio:
+                    return f"🏟 River juega hoy vs {rival} a las {hora} en {estadio}"
                 return f"🏟 River juega hoy vs {rival} a las {hora}"
         return None
     except Exception as e:  # pragma: no cover - red de terceros
