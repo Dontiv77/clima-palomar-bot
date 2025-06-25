@@ -767,9 +767,11 @@ async def comando_ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def enviar_resumen(app):
     """Envía el resumen automático."""
     try:
+        resumen = armar_resumen()
+        resumen += "\n\n" + river_juega_hoy()
         await app.bot.send_message(
             chat_id=CHAT_ID,
-            text=armar_resumen(),
+            text=resumen,
             parse_mode="Markdown",
             disable_web_page_preview=True,
         )
