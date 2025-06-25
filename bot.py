@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import re
 
 import feedparser
+from bs4 import BeautifulSoup
 import nest_asyncio
 import pytz
 import requests
@@ -41,6 +42,15 @@ RSS_POLICIALES = "https://www.infobae.com/policiales/rss/?output=RSS"
 RSS_POLITICA = "https://www.infobae.com/politica/rss/?output=RSS"
 RSS_LOCALES = "https://www.smnoticias.com/feed"
 RSS_RIVER = "https://www.promiedos.com.ar/rss2.php?c=river"
+RIVER_URL = "https://www.promiedos.com.ar/river"
+TRAFFIC_URL = "https://trafico.buenosaires.gob.ar/estado"
+ACCESOS_VIALES = [
+    "Panamericana",
+    "General Paz",
+    "Riccheri",
+    "Acceso Oeste",
+    "Autopista 25 de Mayo",
+]
 RSS_INTERNACIONAL = "https://www.infobae.com/america/rss/?output=RSS"
 
 # Estado
@@ -245,59 +255,53 @@ def obtener_noticias(url: str, cantidad: int = 5) -> str | None:
         return "⚠️ No pude obtener noticias. Intentá más tarde."
 
 
-def obtener_partido_river() -> str | None:
+def _parse_river_html(html: str, now: datetime) -> tuple[str | None, datetime | None, str | None]:
+    """Extrae rival, fecha y raw desde HTML."""
+    soup = BeautifulSoup(html, "html.parser")
+    texto = soup.get_text(" ", strip=True)
+    raw_date = None
+    rival = None
+    fecha = None
+
+    m_fecha = re.search(r"(\d{1,2}/\d{1,2}(?:/\d{2,4})?)\s*(\d{1,2}:\d{2})", texto)
+    if m_fecha:
+        raw_date = m_fecha.group(0)
+        dia = m_fecha.group(1)
+        hora = m_fecha.group(2)
+        if len(dia.split("/")) == 2:
+            dia = f"{dia}/{now.year}"
+        try:
+            fecha = pytz.timezone("America/Argentina/Buenos_Aires").localize(
+                datetime.strptime(f"{dia} {hora}", "%d/%m/%Y %H:%M")
+            )
+        except Exception:
+            fecha = None
+
+    m_rival = re.search(r"river(?:\s*plate)?(?:\s*\(arg\))?\s*vs\.?\s*([^\d\-\n]+)", texto, re.I)
+    if m_rival:
+        rival = m_rival.group(1).strip()
+
+    return rival, fecha, raw_date
+
+
+def obtener_partido_river(debug: bool = False) -> str | None:
     """Devuelve información del partido de River si se juega hoy."""
     try:
-        feed = feedparser.parse(RSS_RIVER)
+        html = requests.get(RIVER_URL, timeout=10).text
         tz = pytz.timezone("America/Argentina/Buenos_Aires")
-        hoy = datetime.now(tz).date()
-        for entry in feed.entries:
-            fecha: datetime | None = None
-            if entry.get("published_parsed"):
-                fecha = (
-                    datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
-                    .astimezone(tz)
-                )
-            elif entry.get("published"):
-                try:
-                    fecha = (
-                        datetime.strptime(
-                            entry.published, "%a, %d %b %Y %H:%M:%S %z"
-                        ).astimezone(tz)
-                    )
-                except Exception:
-                    fecha = None
-            if not fecha:
-                texto = f"{entry.get('title', '')} {entry.get('summary', '')}".lower()
-                m = re.search(r"(\d{1,2}/\d{1,2})\s+(\d{1,2}:\d{2})", texto)
-                if m:
-                    try:
-                        dia, hora = m.groups()
-                        fecha = tz.localize(
-                            datetime.strptime(
-                                f"{dia}/{datetime.now(tz).year} {hora}",
-                                "%d/%m/%Y %H:%M",
-                            )
-                        )
-                    except Exception:
-                        fecha = None
-            if fecha and fecha.date() == hoy:
-                hora = fecha.strftime("%H:%M")
-                titulo = entry.get("title", "")
-                m = re.search(r"vs\.?\s*([^\-|]+)", titulo, re.IGNORECASE)
-                rival = m.group(1).strip() if m else titulo
-                estadio = None
-                resumen = entry.get("summary", "")
-                m = re.search(r"(Estadio\s+[^.,|]+)", resumen, re.IGNORECASE)
-                if m:
-                    estadio = m.group(1).strip()
-                if estadio:
-                    return f"🏟 River juega hoy vs {rival} a las {hora} en {estadio}"
-                return f"🏟 River juega hoy vs {rival} a las {hora}"
+        ahora = datetime.now(tz)
+        rival, fecha, raw = _parse_river_html(html, ahora)
+        if debug:
+            return f"Fuente: {RIVER_URL}\nRaw: {raw}\nFecha local: {fecha}"
+        if fecha and fecha.date() == ahora.date():
+            hora = fecha.strftime("%H:%M")
+            if rival:
+                return f"🏟 River juega hoy a las {hora} vs {rival}"
+            return f"🏟 River juega hoy a las {hora}"
         return None
     except Exception as e:  # pragma: no cover - red de terceros
         logging.error(f"[RIVER] {e}")
-        return "⚠️ No pude obtener información de River. Intentá más tarde."
+        return "⚠️ No pude verificar partido de River. Intentá más tarde."
 
 
 
@@ -322,16 +326,48 @@ def obtener_trafico() -> tuple[int, int] | None:
         return None
 
 
-def obtener_ruta() -> str:
-    """Devuelve texto de tránsito ida y vuelta."""
+def obtener_estado_accesos() -> dict[str, str] | None:
+    """Consulta el estado de los accesos viales."""
+    try:
+        data = requests.get(TRAFFIC_URL, timeout=10).json()
+        resultados: dict[str, str] = {}
+        for item in data.get("accesos", []):
+            nombre = item.get("nombre", "")
+            estado = item.get("estado", "")
+            for acceso in ACCESOS_VIALES:
+                if acceso.lower() in nombre.lower():
+                    resultados[acceso] = estado
+        return resultados
+    except Exception as e:  # pragma: no cover - red de terceros
+        logging.error(f"[ACCESOS] {e}")
+        return None
+
+
+def obtener_ruta() -> tuple[str, tuple[int, int] | None]:
+    """Devuelve texto de tránsito ida y vuelta y estados de accesos."""
     tiempos = obtener_trafico()
+    estados = obtener_estado_accesos()
+    lineas: list[str] = []
     if not tiempos:
-        return "⚠️ No pude obtener la ruta. Intentá más tarde."
-    ida, vuelta = tiempos
-    return (
-        f"🚗 Ida (Palomar → Ezeiza): {ida} minutos\n"
-        f"🔁 Vuelta (Ezeiza → Palomar): {vuelta} minutos"
-    )
+        lineas.append("⚠️ No pude obtener la ruta. Intentá más tarde.")
+    else:
+        ida, vuelta = tiempos
+        lineas.append(f"✅ Ida (Palomar → Ezeiza): {ida} minutos")
+        lineas.append(f"🔁 Vuelta (Ezeiza → Palomar): {vuelta} minutos")
+    if not estados:
+        lineas.append("⚠️ No pude obtener estado del tránsito. Intentá más tarde.")
+    else:
+        lineas.append("🚧 Estado accesos:")
+        alertas: list[str] = []
+        for acceso in ACCESOS_VIALES:
+            if acceso in estados:
+                est = estados[acceso]
+                lineas.append(f"• {acceso}: {est}")
+                if any(p in est.lower() for p in ["corte", "congestion"]):
+                    alertas.append(f"⚠️ Corte en {acceso} — buscar desvío")
+        if alertas:
+            lineas.extend(alertas)
+    return "\n".join(lineas), tiempos
 
 
 async def revisar_alertas_urgentes(app):
@@ -517,18 +553,23 @@ async def comando_river(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         logging.error(f"[COMANDO /river] {e}")
 
 
+async def comando_debug_river(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Muestra información de depuración del partido de River."""
+    try:
+        mensaje = obtener_partido_river(debug=True)
+        await update.message.reply_text(
+            mensaje,
+            parse_mode="Markdown",
+            disable_web_page_preview=True,
+        )
+    except Exception as e:  # pragma: no cover - red de terceros
+        logging.error(f"[COMANDO /debug_river] {e}")
+
+
 async def comando_ruta(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Muestra el tránsito a Ezeiza ida y vuelta."""
     try:
-        tiempos = obtener_trafico()
-        if not tiempos:
-            mensaje = "⚠️ No pude obtener la ruta. Intentá más tarde."
-        else:
-            ida, vuelta = tiempos
-            mensaje = (
-                f"🚗 Ida (Palomar → Ezeiza): {ida} minutos\n"
-                f"🔁 Vuelta (Ezeiza → Palomar): {vuelta} minutos"
-            )
+        mensaje, tiempos = obtener_ruta()
         await update.message.reply_text(
             mensaje,
             parse_mode="Markdown",
@@ -570,6 +611,7 @@ async def comando_ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             "/clima - Clima actual",
             "/noticias - Últimas noticias",
             "/river - Partido de River de hoy",
+            "/debug_river - Info depuración River",
             "/alertas - Ver alertas climáticas",
             "/trafico - Tránsito a Ezeiza",
             "/resumen - Resumen manual",
@@ -595,15 +637,7 @@ async def enviar_resumen(app):
 async def enviar_ruta(app):
     """Envía la información de tránsito y alerta por demoras."""
     try:
-        tiempos = obtener_trafico()
-        if not tiempos:
-            mensaje = "⚠️ No pude obtener la ruta. Intentá más tarde."
-        else:
-            ida, vuelta = tiempos
-            mensaje = (
-                f"🚗 Ida (Palomar → Ezeiza): {ida} minutos\n"
-                f"🔁 Vuelta (Ezeiza → Palomar): {vuelta} minutos"
-            )
+        mensaje, tiempos = obtener_ruta()
         await app.bot.send_message(
             chat_id=CHAT_ID,
             text=mensaje,
@@ -651,6 +685,7 @@ async def iniciar_bot():
     app.add_handler(CommandHandler("clima", comando_clima))
     app.add_handler(CommandHandler("noticias", comando_noticias))
     app.add_handler(CommandHandler("river", comando_river))
+    app.add_handler(CommandHandler("debug_river", comando_debug_river))
     app.add_handler(CommandHandler("ruta", comando_ruta))
     app.add_handler(CommandHandler("transito", comando_trafico))
     app.add_handler(CommandHandler("trafico", comando_trafico))

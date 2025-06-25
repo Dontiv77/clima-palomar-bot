@@ -5,3 +5,4 @@ requests==2.32.4
 pytz==2025.2
 nest_asyncio==1.6.0
 apscheduler==3.11.0
+beautifulsoup4==4.12.3
