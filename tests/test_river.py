@@ -16,6 +16,7 @@ def test_river_juega_hoy(monkeypatch):
     entry = feedparser.FeedParserDict({
         'title': 'River vs Boca',
         'published_parsed': pytz.utc.localize(datetime(2025,6,26,1,0,0)).timetuple(),
+        'summary': 'El partido se juega en Estadio Monumental.'
     })
 
     def fake_parse(url):
@@ -24,4 +25,4 @@ def test_river_juega_hoy(monkeypatch):
     monkeypatch.setattr(feedparser, 'parse', fake_parse)
     monkeypatch.setattr(bot, 'datetime', FixedDateTime)
 
-    assert bot.obtener_partido_river() == '🏟 River juega hoy vs Boca a las 22:00'
+    assert bot.obtener_partido_river() == '🏟 River juega hoy vs Boca a las 22:00 en Estadio Monumental'

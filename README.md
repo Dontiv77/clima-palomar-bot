@@ -12,6 +12,7 @@ Bot automático para Telegram. Informa clima, noticias destacadas (policiales, p
 /trafico   - Tr\u00e1nsito a Ezeiza
 /resumen   - Resumen completo
 /ayuda     - Esta ayuda
+/ping      - Endpoint de keep-alive
 ```
 
 ## Instalación
