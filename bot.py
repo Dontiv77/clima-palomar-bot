@@ -322,6 +322,23 @@ def _parse_river_html(html: str, now: datetime) -> tuple[str | None, datetime | 
     return rival, fecha, raw_date, torneo
 
 
+def river_juega_hoy():
+    try:
+        zona_horaria_ar = pytz.timezone('America/Argentina/Buenos_Aires')
+        hoy = datetime.now(zona_horaria_ar).date()
+        url = 'https://www.promiedos.com.ar/rss/futbol-primera'
+        feed = feedparser.parse(url)
+        for entrada in feed.entries:
+            titulo = entrada.title.lower()
+            fecha_evento = entrada.published_parsed
+            fecha_evento = datetime(*fecha_evento[:6]).date()
+            if "river" in titulo and fecha_evento == hoy:
+                return f"🎯 Hoy juega River: {entrada.title}"
+        return "⚽ Hoy NO juega River Plate."
+    except Exception as e:
+        return f"❌ Error al buscar si juega River: {str(e)}"
+
+
 def obtener_partido_river(debug: bool = False) -> str | None:
     """Devuelve información del partido de River si se juega hoy."""
     try:
@@ -575,7 +592,7 @@ def armar_resumen() -> str:
     if internacional:
         partes.append("🌎 *Internacional:*\n" + internacional)
 
-    partido = obtener_partido_river()
+    partido = river_juega_hoy()
     if partido:
         partes.append(partido)
 
@@ -644,7 +661,7 @@ async def comando_noticias(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 async def comando_river(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Informa si River juega hoy y resultado si está disponible."""
     try:
-        partido = obtener_partido_river()
+        partido = river_juega_hoy()
         mensaje = partido or "ℹ️ River no tiene partido programado para hoy."
         await update.message.reply_text(
             mensaje,
