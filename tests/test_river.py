@@ -14,7 +14,7 @@ class FixedDateTime(datetime):
         return cls(2025,6,25,12,0,0, tzinfo=tz)
 
 def test_river_juega_hoy(monkeypatch):
-    html = '<div>River Plate vs Boca - 25/06 22:00</div>'
+    html = '<div>Liga Profesional - River Plate vs Boca - 25/06 22:00</div>'
 
     class Resp:
         text = html
@@ -22,4 +22,4 @@ def test_river_juega_hoy(monkeypatch):
     monkeypatch.setattr(requests, 'get', lambda *a, **k: Resp())
     monkeypatch.setattr(bot, 'datetime', FixedDateTime)
 
-    assert bot.obtener_partido_river() == '🏟 River juega hoy a las 22:00 vs Boca'
+    assert bot.obtener_partido_river() == '🏟 River juega hoy a las 22:00 vs Boca (Liga Profesional)'
