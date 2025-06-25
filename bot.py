@@ -66,40 +66,45 @@ TWITTER_CUENTAS = [
     "PolloVignolo",
 ]
 
+# Palabras clave que disparan el aviso inmediato y sirven para filtrar
 KEYWORDS_URGENTES = [
-    "asalto",
     "tiroteo",
-    "accidente",
-    "incendio",
-    "protesta",
-    "nieve",
-    "temporal",
-    "evacuación",
-    "homicidio",
-    "caseros",
-    "palomar",
-    "morón",
-    "ciudad jardín",
-    "guerra",
-    "putin",
-    "rusia",
-    "ucrania",
-    "israel",
-    "ir\u00e1n",
-    "otan",
-    "nuclear",
-    "crisis",
+    "asesinato",
+    "robo comando",
+    "narcotrafico",
+    "allanamiento",
+    "crimen",
     "atentado",
-    "eeuu",
-    "granizo",
-    "alerta roja",
-    "riccheri",
-    "panamericana",
-    "general paz",
-    "25 de mayo",
-    "corte",
-    "congestion",
-    "river vs",
+    "guerra",
+    "congreso",
+    "inflacion",
+    "economia",
+    "dolar",
+    "despidos",
+    "israel",
+    "iran",
+    "putin",
+    "ucrania",
+    "estados unidos",
+    "presidente",
+    "militares",
+]
+
+# Palabras que indican que una noticia es banal y debe descartarse
+IGNORE_KEYWORDS = [
+    "pareja",
+    "cine",
+    "boda",
+    "evento",
+    "camila",
+    "kevin",
+    "inaugur\u00f3",
+    "plaza",
+    "gatito",
+    "perrito",
+    "instagram",
+    "tiktok",
+    "famosos",
 ]
 
 
@@ -187,17 +192,37 @@ def obtener_alertas() -> str | None:
     return None
 
 
+def _resumen(texto: str) -> str:
+    """Devuelve un resumen breve y sin HTML."""
+    limpio = re.sub("<[^>]+>", "", texto or "").strip()
+    if len(limpio) > 120:
+        limpio = limpio[:117] + "..."
+    return limpio
+
+
 def obtener_noticias(url: str, cantidad: int = 5) -> str | None:
-    """Extrae noticias nuevas desde un feed RSS."""
+    """Extrae noticias nuevas desde un feed RSS aplicando filtros."""
     try:
         feed = feedparser.parse(url)
         mensajes = []
         for entry in feed.entries:
             enlace = entry.get("link")
-            if enlace and enlace not in enviados_noticias:
-                titulo = entry.get("title", "(sin titulo)")
-                mensajes.append(f"- [{titulo}]({enlace})")
-                enviados_noticias.add(enlace)
+            if not enlace or enlace in enviados_noticias:
+                continue
+
+            titulo = entry.get("title", "(sin titulo)")
+            texto = f"{titulo} {entry.get('summary', '')}".lower()
+            if any(b in texto for b in IGNORE_KEYWORDS):
+                continue
+            if not any(k in texto for k in KEYWORDS_URGENTES):
+                continue
+
+            resumen = _resumen(entry.get("summary", ""))
+            linea = f"- [{titulo}]({enlace})"
+            if resumen:
+                linea += f"\n_{resumen}_"
+            mensajes.append(linea)
+            enviados_noticias.add(enlace)
             if len(mensajes) >= cantidad:
                 break
         if mensajes:
@@ -323,13 +348,19 @@ async def revisar_noticias_urgentes(app):
             feed = feedparser.parse(url)
             for entry in feed.entries:
                 enlace = entry.get("link")
-                titulo = entry.get("title", "").lower()
                 if not enlace or enlace in enviados_urgentes:
                     continue
-                if any(kw in titulo for kw in KEYWORDS_URGENTES):
+
+                titulo = entry.get("title", "")
+                texto = f"{titulo} {entry.get('summary', '')}".lower()
+                if any(b in texto for b in IGNORE_KEYWORDS):
+                    continue
+                if any(k in texto for k in KEYWORDS_URGENTES):
                     enviados_urgentes.add(enlace)
-                    texto = entry.get("title", "(sin titulo)")
-                    msg = f"🚨 *Noticia urgente:* [{texto}]({enlace})"
+                    resumen = _resumen(entry.get("summary", ""))
+                    msg = f"⚠️ *Noticia urgente:* [{titulo}]({enlace})"
+                    if resumen:
+                        msg += f"\n_{resumen}_"
                     await app.bot.send_message(
                         chat_id=CHAT_ID,
                         text=msg,
@@ -347,13 +378,16 @@ async def revisar_tweets_urgentes(app):
             feed = feedparser.parse(f"https://nitter.net/{cuenta}/rss")
             for entry in feed.entries:
                 enlace = entry.get("link")
-                titulo = entry.get("title", "").lower()
                 if not enlace or enlace in enviados_tweets:
                     continue
-                if any(kw in titulo for kw in KEYWORDS_URGENTES):
+
+                titulo = entry.get("title", "")
+                texto = titulo.lower()
+                if any(b in texto for b in IGNORE_KEYWORDS):
+                    continue
+                if any(k in texto for k in KEYWORDS_URGENTES):
                     enviados_tweets.add(enlace)
-                    texto = entry.get("title", "(sin titulo)")
-                    msg = f"🚨 *Tweet urgente:* [{texto}]({enlace})"
+                    msg = f"⚠️ *Tweet urgente:* [{titulo}]({enlace})"
                     await app.bot.send_message(
                         chat_id=CHAT_ID,
                         text=msg,
